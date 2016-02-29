@@ -1,0 +1,80 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Feb 29 15:06:46 2016
+
+@author: Al
+"""
+from urllib.request import urlopen
+from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import re
+import datetime
+import time
+
+def tfly_events(url,venue):
+    
+    def tfly_event_ids(url):
+        html = urlopen(url).read()
+        tfly_soup = BeautifulSoup(html,"lxml")
+        
+        ids = []
+        days_of_week = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+        
+        for weekday in days_of_week:
+            class_name = 'data '+weekday+' vevent'
+            day_htmls = tfly_soup.findAll('td',class_= class_name)
+            
+            for day_html in day_htmls:
+                raw_date = day_html.find('span')
+                date_string = raw_date['title'][0:10]
+                date_strip = time.strptime(date_string,"%Y-%m-%d")
+                event_date = datetime.datetime.fromtimestamp(time.mktime(date_strip))
+                delta = event_date - datetime.datetime.today()
+    
+                if delta.days <= 30:
+                    day_string = str(day_html)
+                    
+                    for m in re.finditer('one-event last-event',day_string):
+                        end = m.end()
+                        a = day_string[end:(end+25)]
+                        b = ''.join(ele for ele in a if ele.isdigit())
+                        ids.append(b)
+                        
+        return ids
+            
+    def tfly_dict(event_id,driver,venue):
+        seen_div = driver.find_element_by_id("tfly-event-id-"+event_id)
+        seen_div.click()
+    
+        unseen_div = WebDriverWait(driver,10).until(
+            EC.presence_of_element_located((By.CLASS_NAME,"richcal-event-info"))
+        )
+    
+        inner_html = unseen_div.get_attribute('innerHTML')
+        soup = BeautifulSoup(inner_html,'lxml')
+        
+        artist = soup.find("div",class_="richcal-headliners").text
+        date = soup.find("div",class_="richcal-dates").text
+        showtime = soup.find("div",class_="richcal-times").text
+        price = soup.find("div",class_="richcal-ticket-price").text
+        
+        show_dict = {"venue":venue,"artist":artist,'date':date,'time':showtime,'price':price}
+        return show_dict
+        
+    driver = webdriver.PhantomJS()
+    driver.get(url)
+    
+    event_ids = tfly_event_ids(url)
+    
+    event_dicts = []
+    for event in event_ids:
+        event_info = tfly_dict(event,driver,venue)
+        event_dicts.append(event_info)        
+        
+    driver.close()
+    return event_dicts
+
+print(tfly_events("http://www.beatkitchen.com/calendar/","Beat Kitchen"))
